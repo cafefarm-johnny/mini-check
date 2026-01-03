@@ -13,16 +13,14 @@ class TodoItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Checkbox(
-          value: todo.isDone,
-          onChanged: (v) {
-            onCheckboxChanged?.call(v ?? false);
-          },
-        ),
-        Text(todo.title),
-      ],
+    return ListTile(
+      leading: Checkbox(
+        value: todo.isDone,
+        onChanged: (v) {
+          onCheckboxChanged?.call(v ?? false);
+        },
+      ),
+      title: Text(todo.title),
     );
   }
 }
