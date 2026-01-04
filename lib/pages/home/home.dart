@@ -6,6 +6,7 @@ import 'package:mini_check/features/home/domain/todo_repository.dart';
 import 'package:mini_check/pages/home/widgets/todo_bottom_sheet.dart';
 import 'package:mini_check/pages/home/widgets/todo_empty.dart';
 import 'package:mini_check/pages/home/widgets/todo_list_view.dart';
+import 'package:mini_check/shared/utils/run_utils.dart';
 import 'package:mini_check/shared/utils/snack_bar_utils.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,16 +20,24 @@ class _HomeScreenState extends State<HomeScreen> {
   late final TodoRepository _todoRepository;
 
   Future<void> _handleChangeTodo(Todo todo, bool isDone) async {
-    await _todoRepository.updateTodo(
-      uuid: todo.id,
-      isDone: isDone,
+    await RunUtils.run(
+      () => _todoRepository.updateTodo(
+        uuid: todo.id,
+        isDone: isDone,
+      ),
+      context: context,
+      failMessage: '할 일 완료 처리에 실패했어요. 다시 시도해주세요.',
     );
   }
 
   Future<void> _handleRemoveTodo(Todo todo) async {
-    await _todoRepository.deleteTodo(todo.id);
+    final result = await RunUtils.run(
+      () => _todoRepository.deleteTodo(todo.id),
+      context: context,
+      failMessage: '할 일 삭제에 실패했어요. 다시 시도해주세요.',
+    );
 
-    if (!mounted) {
+    if (!mounted || result.status.isFailure) {
       return;
     }
 
@@ -37,15 +46,17 @@ class _HomeScreenState extends State<HomeScreen> {
       message: "'${todo.title}'\n할 일이 삭제되었어요.",
       label: '되돌리기',
       onPressed: () async {
-        if (mounted) {
-          await _todoRepository.insertTodo(
+        await RunUtils.run(
+          () => _todoRepository.insertTodo(
             TodoTableCompanion.insert(
               uuid: todo.id,
               title: todo.title,
               createdAt: Value(todo.createdAt),
             ),
-          );
-        }
+          ),
+          context: context,
+          failMessage: '할 일 추가에 실패했어요. 다시 시도해주세요.',
+        );
       },
     );
   }
@@ -66,13 +77,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (mounted && todoTitle != null && todoTitle.isNotEmpty) {
-      final todo = Todo(title: todoTitle, isDone: false);
-      await _todoRepository.insertTodo(
-        TodoTableCompanion.insert(
-          uuid: todo.id,
-          title: todo.title,
-          createdAt: Value(todo.createdAt),
-        ),
+      await RunUtils.run(
+        () async {
+          final todo = Todo(title: todoTitle, isDone: false);
+          await _todoRepository.insertTodo(
+            TodoTableCompanion.insert(
+              uuid: todo.id,
+              title: todo.title,
+              createdAt: Value(todo.createdAt),
+            ),
+          );
+        },
+        context: context,
+        failMessage: '할 일 추가에 실패했어요. 다시 시도해주세요.',
       );
     }
   }
