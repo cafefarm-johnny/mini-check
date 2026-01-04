@@ -1,5 +1,8 @@
+import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
+import 'package:mini_check/app/database.dart';
 import 'package:mini_check/features/home/domain/todo.dart';
+import 'package:mini_check/features/home/domain/todo_repository.dart';
 import 'package:mini_check/pages/home/widgets/todo_bottom_sheet.dart';
 import 'package:mini_check/pages/home/widgets/todo_empty.dart';
 import 'package:mini_check/pages/home/widgets/todo_list_view.dart';
@@ -13,44 +16,41 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final todos = <Todo>[];
+  late final TodoRepository _todoRepository;
 
-  void _handleChangeTodo(Todo todo, bool isDone) {
-    final targetIndex = todos.indexWhere((t) => t.id == todo.id);
-
-    if (targetIndex == -1) {
-      return;
-    }
-
-    setState(() {
-      todos[targetIndex] = todos[targetIndex].copyWith(isDone: isDone);
-    });
+  Future<void> _handleChangeTodo(Todo todo, bool isDone) async {
+    await _todoRepository.updateTodo(
+      uuid: todo.id,
+      isDone: isDone,
+    );
   }
 
-  void _handleRemoveTodo(Todo todo) {
-    final targetIndex = todos.indexWhere((t) => t.id == todo.id);
-    if (targetIndex == -1) {
+  Future<void> _handleRemoveTodo(Todo todo) async {
+    await _todoRepository.deleteTodo(todo.id);
+
+    if (!mounted) {
       return;
     }
-
-    final targetTodo = todos[targetIndex];
-    setState(() => todos.removeAt(targetIndex));
 
     SnackBarUtils.show(
       context: context,
-      message: "'${targetTodo.title}'\n할 일이 삭제되었어요.",
+      message: "'${todo.title}'\n할 일이 삭제되었어요.",
       label: '되돌리기',
-      onPressed: () {
+      onPressed: () async {
         if (mounted) {
-          setState(() {
-            todos.insert(targetIndex.clamp(0, todos.length), targetTodo);
-          });
+          await _todoRepository.insertTodo(
+            TodoTableCompanion.insert(
+              uuid: todo.id,
+              title: todo.title,
+              createdAt: Value(todo.createdAt),
+            ),
+          );
         }
       },
     );
   }
 
-  void _showTodoBottomSheet() async {
+  Future<void> _showTodoBottomSheet() async {
     final todoTitle = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -65,11 +65,22 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) => const TodoBottomSheet(),
     );
 
-    if (mounted) {
-      if (todoTitle != null && todoTitle.isNotEmpty) {
-        setState(() => todos.add(Todo(title: todoTitle, isDone: false)));
-      }
+    if (mounted && todoTitle != null && todoTitle.isNotEmpty) {
+      final todo = Todo(title: todoTitle, isDone: false);
+      await _todoRepository.insertTodo(
+        TodoTableCompanion.insert(
+          uuid: todo.id,
+          title: todo.title,
+          createdAt: Value(todo.createdAt),
+        ),
+      );
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _todoRepository = TodoRepository(AppDatabase.instance);
   }
 
   @override
@@ -78,24 +89,37 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(title: const Text('오늘의 할 일')),
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: _createBody(todos),
+        child: StreamBuilder<List<TodoTableData>>(
+          stream: _todoRepository.fetchTodos(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(snapshot.error.toString()),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const TodoEmpty();
+            }
+
+            return TodoListView(
+              todos: snapshot.data!.map(Todo.fromTableData).toList(),
+              onChanged: _handleChangeTodo,
+              onRemoved: _handleRemoveTodo,
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showTodoBottomSheet,
         child: const Icon(Icons.add),
       ),
-    );
-  }
-
-  Widget _createBody(List<Todo> todos) {
-    if (todos.isEmpty) {
-      return const TodoEmpty();
-    }
-
-    return TodoListView(
-      todos: todos,
-      onChanged: _handleChangeTodo,
-      onRemoved: _handleRemoveTodo,
     );
   }
 }
